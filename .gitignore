@@ -1,0 +1,36 @@
+# Node.js / npm
+node_modules/
+npm-debug.log
+yarn-error.log
+package-lock.json
+
+# TypeScript build output
+dist/
+*.tsbuildinfo
+
+# Optional: coverage reports
+coverage/
+.nyc_output/
+
+# Logs
+*.log
+logs
+logs/*.log
+pids
+*.pid
+*.seed
+
+# OS-specific or IDE-specific
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Env files
+.env
+.env.local
+.env.*.local
+
+# If using Heroku, these are optional:
+.heroku/
+
