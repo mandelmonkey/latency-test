@@ -94,7 +94,7 @@ function createApp() {
 </head>
 <body>
   <h1>Test</h1>
-  <p></p>
+  <p>-</p>
   <p>
     Enter a userId: <input id="userId" value="testUser123" /> 
     <button id="startTestBtn">Start Test</button>
@@ -129,7 +129,7 @@ function createApp() {
         
         const token = data.token;
         const totalIterations = data.totalIterations;
-    //    logArea.textContent += "Server says to do " + totalIterations + " iterations. Token = " + token + "\\n";
+    //logArea.textContent += "Server says to do " + totalIterations + " iterations. Token = " + token + "\\n";
         
         // 2) Repeatedly call /reportLatency with the token
         let iterationCount = 0;
@@ -147,7 +147,7 @@ function createApp() {
           if (data.avgRttMs !== undefined) {
             // We have the final average
            // logArea.textContent += "All tests done. Average RTT = " + data.avgRttMs + " ms\\n";
-           logArea.textContent += "done!"\\n";
+           logArea.textContent += "done!\\n";
             done = true;
           } else {
             // We got an intermediate response
