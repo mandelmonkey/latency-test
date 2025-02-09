@@ -60,18 +60,19 @@ function createApp() {
 
   const EXPIRATION_MS = 5000; // 5 seconds
 
-function cleanupTokenMap() {
-  const now = Date.now();
-  for (const [token, startTracking] of tokenMap.entries()) {
-    if (now - startTracking.getTime() > EXPIRATION_MS) {
-      // If entry is older than EXPIRATION_MS, delete it
-      tokenMap.delete(token);
+  function cleanupTokenMap() {
+    const now = Date.now();
+    for (const [token, startTracking] of tokenMap.entries()) {
+      if (now - startTracking.getTime() > EXPIRATION_MS) {
+        // If entry is older than EXPIRATION_MS, delete it
+        tokenMap.delete(token);
+      }
     }
   }
 
   setInterval(() => {
-  cleanupTokenMap();
-}, 10_000); // run every 10 seconds, for example
+    cleanupTokenMap();
+  }, 10_000); // run every 10 seconds, for example
   // @ts-ignore
   app.post("/reportLatency", (req, res) => {
     console.log("token map", tokenMap.size);
