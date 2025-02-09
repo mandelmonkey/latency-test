@@ -53,6 +53,7 @@ function createApp() {
 
   // @ts-ignore
   app.post("/reportLatency", (req, res) => {
+    console.log("token map", tokenMap.size);
     const { userId, token } = req.body;
 
     if (!userId) {
