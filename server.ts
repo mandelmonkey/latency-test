@@ -2,6 +2,7 @@ import express, { Request, Response } from "express";
 import cors from "cors";
 import { MongoClient, Db, Collection } from "mongodb";
 import crypto from "crypto";
+
 //////////////////////////////////////////////////////////
 //  CONFIGURATIONS & ENV
 //////////////////////////////////////////////////////////
@@ -18,22 +19,60 @@ const MONGODB_URI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017";
 const DB_NAME = "locationDb";
 const COLLECTION_NAME = "userServerLatency";
 
-// Interfaces for our stored data
+// The server-defined number of tests (iterations)
+const DEFAULT_TOTAL_ITERATIONS = 5;
+
+//////////////////////////////////////////////////////////
+//  INTERFACES
+//////////////////////////////////////////////////////////
+
 interface UserLatencyDoc {
   userId: string; // Unique user identifier
-  ipAddress: string;
+  ipAddress: string | undefined;
   region: string; // Which server region measured the latency
-  lastPingMs: number; // e.g. "42.51"
+  lastPingMs: number; // e.g. 42
   updatedAt: Date;
+}
+
+/**
+ * In-memory structure to track multiple RTT tests for one token.
+ * Example flow:
+ *  - iteration=0
+ *  - totalIterations=5 (server-defined)
+ *  - sumOfRTTs=0
+ *  - startTracking=Date (for current iteration)
+ */
+interface TestState {
+  userId: string;
+  ipAddress: string | undefined;
+  iteration: number;
+  totalIterations: number;
+  sumOfRTTs: number;
+  startTracking: Date;
 }
 
 //////////////////////////////////////////////////////////
 //  GLOBALS
 //////////////////////////////////////////////////////////
-
 let mongoClient: MongoClient;
 let db: Db;
 let latencyColl: Collection<UserLatencyDoc>;
+
+// In-memory token map: token => TestState
+const tokenMap = new Map<string, TestState>();
+
+// Clean up tokens that are too old, to prevent spamming
+const EXPIRATION_MS = 60_000; // 1 minute expiration
+function cleanupTokenMap() {
+  const now = Date.now();
+  for (const [token, state] of tokenMap.entries()) {
+    if (now - state.startTracking.getTime() > EXPIRATION_MS) {
+      tokenMap.delete(token);
+    }
+  }
+}
+// Run cleanup every 30 seconds
+setInterval(cleanupTokenMap, 30000);
 
 //////////////////////////////////////////////////////////
 //  EXPRESS APP
@@ -45,78 +84,115 @@ function createApp() {
 
   /**
    * POST /reportLatency
-   *  - The client sends { userId: string }
-   *  - The server measures approx. RTT on the server side
-   *  - Stores { userId, region, lastPingMs, updatedAt } in Mongo
+   *
+   * 1) First call (no token) => server generates a token, sets iteration=0,
+   *    totalIterations = DEFAULT_TOTAL_ITERATIONS, sumOfRTTs=0, and returns { token, totalIterations }
+   *
+   * 2) Next calls => { userId, token }
+   *    - Server measures RTT = now - startTracking
+   *    - iteration++
+   *    - sumOfRTTs += RTT
+   *    - if iteration < totalIterations => reset startTracking=now, return { iterationSoFar }
+   *    - if iteration === totalIterations => compute avg, store in DB, remove token from map, return { avgRttMs }
    */
-
-  const tokenMap = new Map<string, Date>();
-
-  const EXPIRATION_MS = 5000; // 5 seconds
-
-  function cleanupTokenMap() {
-    const now = Date.now();
-    for (const [token, startTracking] of tokenMap.entries()) {
-      if (now - startTracking.getTime() > EXPIRATION_MS) {
-        // If entry is older than EXPIRATION_MS, delete it
-        tokenMap.delete(token);
-      }
-    }
-  }
-
-  setInterval(() => {
-    cleanupTokenMap();
-  }, 10_000); // run every 10 seconds, for example
   // @ts-ignore
-  app.post("/reportLatency", (req, res) => {
-    console.log("token map", tokenMap.size);
-    const { userId, token } = req.body;
-    const ipAddress = req.header("x-forwarded-for");
-    // 1) First request: no token -> generate one
-    if (!token) {
-      const randomToken = crypto.randomBytes(8).toString("hex");
-      const startTracking = new Date();
+  app.post("/reportLatency", async (req: Request, res: Response) => {
+    try {
+      const { userId, token } = req.body;
+      const ipAddress = req.header("x-forwarded-for");
 
-      // Store in memory, not in DB
-      tokenMap.set(randomToken, startTracking);
-      tokenMap.forEach((startTracking, token) => {
-        console.log("Token:", token, "Start Tracking:", startTracking);
-      });
+      if (!userId) {
+        return res.status(400).json({ error: "Missing userId" });
+      }
 
-      return res.json({ token: randomToken });
-    }
+      // 1) If no token, it's the first call in the sequence
+      if (!token) {
+        // Generate random token
+        const randomToken = crypto.randomBytes(8).toString("hex");
+        const startTracking = new Date();
 
-    // 2) Second request: token present -> measure RTT
-    const startTracking = tokenMap.get(token);
-    if (!startTracking) {
-      return res.status(404).json({ error: "Token not found" });
-    }
+        // Create the initial state
+        const newState: TestState = {
+          userId,
+          ipAddress,
+          iteration: 0,
+          totalIterations: DEFAULT_TOTAL_ITERATIONS,
+          sumOfRTTs: 0,
+          startTracking,
+        };
+        tokenMap.set(randomToken, newState);
 
-    const rttMs = new Date().getTime() - startTracking.getTime();
+        console.log(
+          `First call: userId=${userId}, totalTests=${DEFAULT_TOTAL_ITERATIONS}, token=${randomToken}`
+        );
 
-    // Remove the token from the map (no replay)
-    tokenMap.delete(token);
+        return res.json({
+          token: randomToken,
+          totalIterations: DEFAULT_TOTAL_ITERATIONS,
+          message: `Begin RTT test. Repeat calls until all ${DEFAULT_TOTAL_ITERATIONS} iterations complete.`,
+        });
+      }
 
-    // (Optional) Write to DB now, but your RTT is already measured
-    // so DB overhead won't affect the measured time:
-    latencyColl
-      .updateOne(
-        { ipAddress, region: SERVER_REGION },
-        {
-          $set: {
-            ipAddress,
-            userId,
-            region: SERVER_REGION,
-            lastPingMs: rttMs,
-            updatedAt: new Date(),
+      // 2) If token is present, we're continuing the handshake
+      const state = tokenMap.get(token);
+      if (!state) {
+        return res.status(404).json({ error: "Token not found or expired." });
+      }
+
+      // Calculate this iteration's RTT
+      const now = new Date();
+      const rttMs = now.getTime() - state.startTracking.getTime();
+
+      state.sumOfRTTs += rttMs;
+      state.iteration += 1;
+
+      console.log(
+        `Iteration #${state.iteration} of ${state.totalIterations} for user=${state.userId}. RTT=${rttMs}ms`
+      );
+
+      if (state.iteration >= state.totalIterations) {
+        // We are done. Compute average, store in DB, remove token.
+        const avgRttMs = Math.round(state.sumOfRTTs / state.totalIterations);
+
+        // Store final in Mongo
+        await latencyColl.updateOne(
+          { userId: state.userId, region: SERVER_REGION },
+          {
+            $set: {
+              userId: state.userId,
+              ipAddress: state.ipAddress,
+              region: SERVER_REGION,
+              lastPingMs: avgRttMs,
+              updatedAt: new Date(),
+            },
           },
-        },
-        { upsert: true }
-      )
-      .catch((err) => console.error("DB error:", err));
+          { upsert: true }
+        );
 
-    // Return the computed RTT
-    return res.json({ message: "RTT measured", rttMs });
+        tokenMap.delete(token);
+
+        console.log(
+          `Completed all ${state.totalIterations} tests. avgRttMs=${avgRttMs} for user=${state.userId}.`
+        );
+
+        return res.json({
+          message: "All tests completed",
+          avgRttMs,
+          totalIterations: state.totalIterations,
+        });
+      } else {
+        // Not done yet: prepare for next iteration
+        state.startTracking = now;
+        return res.json({
+          message: "Test iteration complete. Continue calling until done.",
+          iterationSoFar: state.iteration,
+          totalIterations: state.totalIterations,
+        });
+      }
+    } catch (err) {
+      console.error("Error in /reportLatency route:", err);
+      return res.status(500).json({ error: "Internal server error" });
+    }
   });
 
   /**
@@ -139,13 +215,13 @@ function createApp() {
           records: [],
         });
       }
-      res.json({
+      return res.json({
         userId,
         records,
       });
     } catch (err) {
       console.error("MongoDB find error:", err);
-      res.status(500).json({ error: "Internal server error" });
+      return res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -153,7 +229,7 @@ function createApp() {
    * GET /closestServer/:userId
    *  - Looks at all region-latency docs for this user
    *  - Finds the server with the lowest latency
-   *  - If the best latency is still too high, we say "user not close to either"
+   *  - If the best latency is still too high, we say "user not close to any server"
    */
   // @ts-ignore
   app.get("/closestServer/:userId", async (req: Request, res: Response) => {
@@ -169,11 +245,7 @@ function createApp() {
       }
 
       // Sort by ascending lastPingMs
-      records.sort((a, b) => {
-        const aPing = a.lastPingMs;
-        const bPing = b.lastPingMs;
-        return aPing - bPing;
-      });
+      records.sort((a, b) => a.lastPingMs - b.lastPingMs);
 
       // The first record in sorted order has the lowest latency
       const best = records[0];
@@ -188,7 +260,7 @@ function createApp() {
       }
 
       // If it's below threshold, we consider that region "closest"
-      res.json({
+      return res.json({
         userId,
         closest: {
           region: best.region,
@@ -199,7 +271,7 @@ function createApp() {
       });
     } catch (err) {
       console.error("MongoDB find error:", err);
-      res.status(500).json({ error: "Internal server error" });
+      return res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -211,6 +283,7 @@ function createApp() {
 //////////////////////////////////////////////////////////
 async function startServer() {
   try {
+    // Connect to MongoDB
     mongoClient = new MongoClient(MONGODB_URI);
     await mongoClient.connect();
     console.log("Connected to MongoDB:", MONGODB_URI);
@@ -218,6 +291,7 @@ async function startServer() {
     db = mongoClient.db(DB_NAME);
     latencyColl = db.collection<UserLatencyDoc>(COLLECTION_NAME);
 
+    // Create and start the Express app
     const app = createApp();
     const PORT = process.env.PORT || 3000;
     app.listen(PORT, () => {
@@ -231,3 +305,90 @@ async function startServer() {
 
 // Entry point
 startServer();
+// @ts-ignore
+app.get("/", (req, res) => {
+  // We serve an inline HTML + JS
+  res.send(`
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Server-Controlled RTT Test</title>
+</head>
+<body>
+  <h1>Server-Controlled RTT Test</h1>
+  <p>This page demonstrates a multi-iteration RTT test controlled by the server.</p>
+  <p>
+    Enter a userId: <input id="userId" value="testUser123" /> 
+    <button id="startTestBtn">Start Test</button>
+  </p>
+  <pre id="logOutput" style="background:#eee; padding:1em;"></pre>
+  
+  <script>
+    const logArea = document.getElementById("logOutput");
+    const startBtn = document.getElementById("startTestBtn");
+    const userIdInput = document.getElementById("userId");
+    
+    startBtn.addEventListener("click", async () => {
+      logArea.textContent = ""; // clear log
+      const userId = userIdInput.value.trim();
+      if (!userId) {
+        alert("Please enter a userId first.");
+        return;
+      }
+      // 1) First call: no token, just { userId }
+      try {
+        let resp = await fetch("/reportLatency", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId })
+        });
+        let data = await resp.json();
+        
+        if (!data.token) {
+          logArea.textContent += "Failed to get token. Server responded with: " + JSON.stringify(data) + "\\n";
+          return;
+        }
+        
+        const token = data.token;
+        const totalIterations = data.totalIterations;
+        logArea.textContent += "Server says to do " + totalIterations + " iterations. Token = " + token + "\\n";
+        
+        // 2) Repeatedly call /reportLatency with the token
+        let iterationCount = 0;
+        let done = false;
+        
+        while (!done) {
+          iterationCount++;
+          resp = await fetch("/reportLatency", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ userId, token })
+          });
+          data = await resp.json();
+          
+          if (data.avgRttMs !== undefined) {
+            // We have the final average
+            logArea.textContent += "All tests done. Average RTT = " + data.avgRttMs + " ms\\n";
+            done = true;
+          } else {
+            // We got an intermediate response
+            const iterationSoFar = data.iterationSoFar;
+            const remaining = data.totalIterations - iterationSoFar;
+            logArea.textContent += "Finished iteration " + iterationSoFar + " / " + data.totalIterations + "\\n";
+            if (remaining === 0) {
+              // If the server coded differently, we might see the final iteration here
+              // But typically, once iterationSoFar == totalIterations, 
+              // the next response might include avgRttMs. 
+              // We'll rely on the server to return an avgRttMs eventually.
+            }
+          }
+        }
+      } catch (err) {
+        logArea.textContent += "Error: " + err + "\\n";
+      }
+    });
+  </script>
+</body>
+</html>
+    `);
+});
