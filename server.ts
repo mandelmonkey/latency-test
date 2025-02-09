@@ -21,16 +21,10 @@ const COLLECTION_NAME = "userServerLatency";
 // Interfaces for our stored data
 interface UserLatencyDoc {
   userId: string; // Unique user identifier
+  ipAddress: string;
   region: string; // Which server region measured the latency
   lastPingMs: number; // e.g. "42.51"
   updatedAt: Date;
-}
-
-// Interfaces for our stored data
-interface UserMap {
-  userId: string; // Unique user identifier
-  token: string; // Which server region measured the latency
-  startTime: Date; // e.g. "42.51"
 }
 
 //////////////////////////////////////////////////////////
@@ -77,11 +71,7 @@ function createApp() {
   app.post("/reportLatency", (req, res) => {
     console.log("token map", tokenMap.size);
     const { userId, token } = req.body;
-
-    if (!userId) {
-      return res.status(400).json({ error: "Missing userId" });
-    }
-
+    const ipAddress = req.header("x-forwarded-for");
     // 1) First request: no token -> generate one
     if (!token) {
       const randomToken = crypto.randomBytes(8).toString("hex");
@@ -111,9 +101,10 @@ function createApp() {
     // so DB overhead won't affect the measured time:
     latencyColl
       .updateOne(
-        { userId, region: SERVER_REGION },
+        { ipAddress, region: SERVER_REGION },
         {
           $set: {
+            ipAddress,
             userId,
             region: SERVER_REGION,
             lastPingMs: rttMs,
