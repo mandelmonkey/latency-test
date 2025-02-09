@@ -192,6 +192,7 @@ app.get("/", (req: Request, res: Response) => {
 
     // Run a test for one endpoint using WebSockets.
     function runTestForEndpoint(endpoint, userId) {
+    console.log("endpoint",endpoint);
       return new Promise((resolve, reject) => {
         const socket = io(endpoint.url);
         let currentToken = null;
