@@ -26,6 +26,13 @@ interface UserLatencyDoc {
   updatedAt: Date;
 }
 
+// Interfaces for our stored data
+interface UserMap {
+  userId: string; // Unique user identifier
+  token: string; // Which server region measured the latency
+  startTime: Date; // e.g. "42.51"
+}
+
 //////////////////////////////////////////////////////////
 //  GLOBALS
 //////////////////////////////////////////////////////////
@@ -67,6 +74,9 @@ function createApp() {
 
       // Store in memory, not in DB
       tokenMap.set(randomToken, startTracking);
+      tokenMap.forEach((startTracking, token) => {
+        console.log("Token:", token, "Start Tracking:", startTracking);
+      });
 
       return res.json({ token: randomToken });
     }
