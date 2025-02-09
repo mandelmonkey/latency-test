@@ -82,6 +82,95 @@ function createApp() {
   app.use(express.json());
   app.use(cors());
 
+  // 1) Serve a simple HTML page at "/"
+  //    This page has the client-side code to test RTT
+  app.get("/", (req, res) => {
+    // We serve an inline HTML + JS
+    res.send(`
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Server-Controlled RTT Test</title>
+</head>
+<body>
+  <h1>Server-Controlled RTT Test</h1>
+  <p>This page demonstrates a multi-iteration RTT test controlled by the server.</p>
+  <p>
+    Enter a userId: <input id="userId" value="testUser123" /> 
+    <button id="startTestBtn">Start Test</button>
+  </p>
+  <pre id="logOutput" style="background:#eee; padding:1em;"></pre>
+  
+  <script>
+    const logArea = document.getElementById("logOutput");
+    const startBtn = document.getElementById("startTestBtn");
+    const userIdInput = document.getElementById("userId");
+    
+    startBtn.addEventListener("click", async () => {
+      logArea.textContent = ""; // clear log
+      const userId = userIdInput.value.trim();
+      if (!userId) {
+        alert("Please enter a userId first.");
+        return;
+      }
+      // 1) First call: no token, just { userId }
+      try {
+        let resp = await fetch("/reportLatency", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId })
+        });
+        let data = await resp.json();
+        
+        if (!data.token) {
+          logArea.textContent += "Failed to get token. Server responded with: " + JSON.stringify(data) + "\\n";
+          return;
+        }
+        
+        const token = data.token;
+        const totalIterations = data.totalIterations;
+        logArea.textContent += "Server says to do " + totalIterations + " iterations. Token = " + token + "\\n";
+        
+        // 2) Repeatedly call /reportLatency with the token
+        let iterationCount = 0;
+        let done = false;
+        
+        while (!done) {
+          iterationCount++;
+          resp = await fetch("/reportLatency", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ userId, token })
+          });
+          data = await resp.json();
+          
+          if (data.avgRttMs !== undefined) {
+            // We have the final average
+            logArea.textContent += "All tests done. Average RTT = " + data.avgRttMs + " ms\\n";
+            done = true;
+          } else {
+            // We got an intermediate response
+            const iterationSoFar = data.iterationSoFar;
+            const remaining = data.totalIterations - iterationSoFar;
+            logArea.textContent += "Finished iteration " + iterationSoFar + " / " + data.totalIterations + "\\n";
+            if (remaining === 0) {
+              // If the server coded differently, we might see the final iteration here
+              // But typically, once iterationSoFar == totalIterations, 
+              // the next response might include avgRttMs. 
+              // We'll rely on the server to return an avgRttMs eventually.
+            }
+          }
+        }
+      } catch (err) {
+        logArea.textContent += "Error: " + err + "\\n";
+      }
+    });
+  </script>
+</body>
+</html>
+    `);
+  });
+
   /**
    * POST /reportLatency
    *
@@ -305,90 +394,3 @@ async function startServer() {
 
 // Entry point
 startServer();
-// @ts-ignore
-app.get("/", (req, res) => {
-  // We serve an inline HTML + JS
-  res.send(`
-<!DOCTYPE html>
-<html>
-<head>
-  <title>Server-Controlled RTT Test</title>
-</head>
-<body>
-  <h1>Server-Controlled RTT Test</h1>
-  <p>This page demonstrates a multi-iteration RTT test controlled by the server.</p>
-  <p>
-    Enter a userId: <input id="userId" value="testUser123" /> 
-    <button id="startTestBtn">Start Test</button>
-  </p>
-  <pre id="logOutput" style="background:#eee; padding:1em;"></pre>
-  
-  <script>
-    const logArea = document.getElementById("logOutput");
-    const startBtn = document.getElementById("startTestBtn");
-    const userIdInput = document.getElementById("userId");
-    
-    startBtn.addEventListener("click", async () => {
-      logArea.textContent = ""; // clear log
-      const userId = userIdInput.value.trim();
-      if (!userId) {
-        alert("Please enter a userId first.");
-        return;
-      }
-      // 1) First call: no token, just { userId }
-      try {
-        let resp = await fetch("/reportLatency", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userId })
-        });
-        let data = await resp.json();
-        
-        if (!data.token) {
-          logArea.textContent += "Failed to get token. Server responded with: " + JSON.stringify(data) + "\\n";
-          return;
-        }
-        
-        const token = data.token;
-        const totalIterations = data.totalIterations;
-        logArea.textContent += "Server says to do " + totalIterations + " iterations. Token = " + token + "\\n";
-        
-        // 2) Repeatedly call /reportLatency with the token
-        let iterationCount = 0;
-        let done = false;
-        
-        while (!done) {
-          iterationCount++;
-          resp = await fetch("/reportLatency", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ userId, token })
-          });
-          data = await resp.json();
-          
-          if (data.avgRttMs !== undefined) {
-            // We have the final average
-            logArea.textContent += "All tests done. Average RTT = " + data.avgRttMs + " ms\\n";
-            done = true;
-          } else {
-            // We got an intermediate response
-            const iterationSoFar = data.iterationSoFar;
-            const remaining = data.totalIterations - iterationSoFar;
-            logArea.textContent += "Finished iteration " + iterationSoFar + " / " + data.totalIterations + "\\n";
-            if (remaining === 0) {
-              // If the server coded differently, we might see the final iteration here
-              // But typically, once iterationSoFar == totalIterations, 
-              // the next response might include avgRttMs. 
-              // We'll rely on the server to return an avgRttMs eventually.
-            }
-          }
-        }
-      } catch (err) {
-        logArea.textContent += "Error: " + err + "\\n";
-      }
-    });
-  </script>
-</body>
-</html>
-    `);
-});
