@@ -1,7 +1,7 @@
 import express, { Request, Response } from "express";
 import cors from "cors";
 import { MongoClient, Db, Collection } from "mongodb";
-
+import crypto from "crypto";
 //////////////////////////////////////////////////////////
 //  CONFIGURATIONS & ENV
 //////////////////////////////////////////////////////////
@@ -22,7 +22,7 @@ const COLLECTION_NAME = "userServerLatency";
 interface UserLatencyDoc {
   userId: string; // Unique user identifier
   region: string; // Which server region measured the latency
-  lastPingMs: string; // e.g. "42.51"
+  lastPingMs: number; // e.g. "42.51"
   updatedAt: Date;
 }
 
@@ -48,45 +48,58 @@ function createApp() {
    *  - The server measures approx. RTT on the server side
    *  - Stores { userId, region, lastPingMs, updatedAt } in Mongo
    */
-  // @ts-ignore
-  app.post("/reportLatency", (req: Request, res: Response) => {
-    const startTime = process.hrtime.bigint();
 
-    const { userId } = req.body;
+  const tokenMap = new Map<string, Date>();
+
+  // @ts-ignore
+  app.post("/reportLatency", (req, res) => {
+    const { userId, token } = req.body;
+
     if (!userId) {
       return res.status(400).json({ error: "Missing userId" });
     }
 
-    // Immediately send a response
-    res.json({ message: "Latency reported. Thanks!" });
+    // 1) First request: no token -> generate one
+    if (!token) {
+      const randomToken = crypto.randomBytes(8).toString("hex");
+      const startTracking = new Date();
 
-    // After response finishes, measure endTime
-    res.on("finish", async () => {
-      const endTime = process.hrtime.bigint();
-      const diffMs = Number(endTime - startTime) / 1_000_000; // nanoseconds -> ms
-      const lastPingMs = diffMs.toFixed(2);
+      // Store in memory, not in DB
+      tokenMap.set(randomToken, startTracking);
 
-      try {
-        // Upsert a doc for (userId + region)
-        await latencyColl.updateOne(
-          { userId, region: SERVER_REGION },
-          {
-            $set: {
-              userId,
-              region: SERVER_REGION,
-              lastPingMs,
-              updatedAt: new Date(),
-            },
+      return res.json({ token: randomToken });
+    }
+
+    // 2) Second request: token present -> measure RTT
+    const startTracking = tokenMap.get(token);
+    if (!startTracking) {
+      return res.status(404).json({ error: "Token not found" });
+    }
+
+    const rttMs = new Date().getTime() - startTracking.getTime();
+
+    // Remove the token from the map (no replay)
+    tokenMap.delete(token);
+
+    // (Optional) Write to DB now, but your RTT is already measured
+    // so DB overhead won't affect the measured time:
+    latencyColl
+      .updateOne(
+        { userId, region: SERVER_REGION },
+        {
+          $set: {
+            userId,
+            region: SERVER_REGION,
+            lastPingMs: rttMs,
+            updatedAt: new Date(),
           },
-          { upsert: true }
-        );
-        console.log(
-          `User ${userId} ping => region:${SERVER_REGION}, RTT = ${lastPingMs} ms`
-        );
-      } catch (err) {
-        console.error("MongoDB update error:", err);
-      }
-    });
+        },
+        { upsert: true }
+      )
+      .catch((err) => console.error("DB error:", err));
+
+    // Return the computed RTT
+    return res.json({ message: "RTT measured", rttMs });
   });
 
   /**
@@ -140,14 +153,14 @@ function createApp() {
 
       // Sort by ascending lastPingMs
       records.sort((a, b) => {
-        const aPing = parseFloat(a.lastPingMs);
-        const bPing = parseFloat(b.lastPingMs);
+        const aPing = a.lastPingMs;
+        const bPing = b.lastPingMs;
         return aPing - bPing;
       });
 
       // The first record in sorted order has the lowest latency
       const best = records[0];
-      const bestMs = parseFloat(best.lastPingMs);
+      const bestMs = best.lastPingMs;
 
       if (bestMs > LATENCY_CLOSE_THRESHOLD_MS) {
         return res.json({
