@@ -150,8 +150,8 @@ function createApp() {
             done = true;
             return { name: endpoint.name, avgRttMs: data.avgRttMs };
           } else {
-           logArea.textContent += "client-"+ endpoint.name + ": All tests done. Average RTT = " + duration.toFixed(2) + " ms\\n";
-            logArea.textContent += endpoint.name + ": Iteration complete (" + data.iterationSoFar + " / " + data.totalIterations + ")\\n";
+           logArea.textContent += "client-"+ endpoint.name + ": RTT = " + duration.toFixed(2) + " ms\\n";
+            logArea.textContent += endpoint.name + ": Iteration complete (" + data.iterationSoFar + " / " + data.totalIterations + ")\\n\\n";
           }
         }
       } catch (err) {
