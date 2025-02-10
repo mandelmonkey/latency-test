@@ -145,11 +145,12 @@ function createApp() {
           const duration = end - start; // Calculate the duration in milliseconds 
 
           if (data.avgRttMs !== undefined) {
-           logArea.textContent += "client-"+ endpoint.name + ": All tests done. Average RTT = " + duration.toFixed(2) + " ms\\n";
+           
             logArea.textContent += endpoint.name + ": All tests done. Average RTT = " + data.avgRttMs + " ms\\n";
             done = true;
             return { name: endpoint.name, avgRttMs: data.avgRttMs };
           } else {
+           logArea.textContent += "client-"+ endpoint.name + ": All tests done. Average RTT = " + duration.toFixed(2) + " ms\\n";
             logArea.textContent += endpoint.name + ": Iteration complete (" + data.iterationSoFar + " / " + data.totalIterations + ")\\n";
           }
         }
