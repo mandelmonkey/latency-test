@@ -103,7 +103,8 @@ function createApp() {
     const endpoints = [
       { name: "US", url: "https://latency-test-us-dc1c0df1e579.herokuapp.com" },
       { name: "EU", url: "https://latency-test-eu-6615850a4a65.herokuapp.com" },
-      { name: "EU-EAST", url: "https://latency-test-us-east.onrender.com" }
+      { name: "US-EAST", url: "https://latency-test-us-east.onrender.com" },
+      { name: "US_WEST", url:"https://latency-test-us-west.onrender.com"}
     ];
 
     const logArea = document.getElementById("logOutput");
