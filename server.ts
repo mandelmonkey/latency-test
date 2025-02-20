@@ -2,6 +2,7 @@ import express, { Request, Response } from "express";
 import cors from "cors";
 import { MongoClient, Db, Collection } from "mongodb";
 import crypto from "crypto";
+import { performance } from "perf_hooks";
 
 //////////////////////////////////////////////////////////
 //  CONFIGURATIONS & ENV
@@ -49,6 +50,52 @@ interface TestState {
   totalIterations: number;
   sumOfRTTs: number;
   startTracking: Date;
+}
+
+interface EndpointResult {
+  name: string;
+  avgRttMs?: number;
+}
+
+interface ReportResponse {
+  token?: string;
+  totalIterations?: number;
+  iterationSoFar?: number;
+  avgRttMs?: number;
+}
+
+// List of remote endpoints to test
+const endpoints = [
+  {
+    name: "US-HEROKU",
+    url: "https://latency-test-us-dc1c0df1e579.herokuapp.com",
+  },
+  {
+    name: "EU-HEROKU",
+    url: "https://latency-test-eu-6615850a4a65.herokuapp.com",
+  },
+  { name: "US-EAST", url: "https://latency-test-us-east.onrender.com" },
+  { name: "US_WEST", url: "https://latency-test-us-west.onrender.com" },
+  {
+    name: "AS-SINGAPORE",
+    url: "https://latency-test-singapore.onrender.com",
+  },
+  {
+    name: "EU-FRANKFURT",
+    url: "https://latency-test-frankfurt.onrender.com",
+  },
+];
+
+interface EndpointResult {
+  name: string;
+  avgRttMs?: number;
+}
+
+interface ReportResponse {
+  token?: string;
+  totalIterations?: number;
+  iterationSoFar?: number;
+  avgRttMs?: number;
 }
 
 //////////////////////////////////////////////////////////
@@ -180,6 +227,95 @@ function createApp() {
     `);
   });
 
+  // Function to run the multi-iteration test for a given endpoint.
+  async function runTestForEndpoint(
+    endpoint: { name: string; url: string },
+    userId: string
+  ): Promise<EndpointResult | void> {
+    console.log(`Starting test for ${endpoint.name} (${endpoint.url})`);
+    try {
+      // First call: no token provided
+      let resp = await fetch(`${endpoint.url}/reportLatency`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId }),
+      });
+      let data: ReportResponse = await resp.json();
+
+      if (!data.token) {
+        console.error(
+          `Error: No token received from ${endpoint.name}: ${JSON.stringify(
+            data
+          )}`
+        );
+        return;
+      }
+
+      const token = data.token;
+      const totalIterations = data.totalIterations;
+      console.log(
+        `${endpoint.name}: Received token: ${token}. Total iterations: ${totalIterations}`
+      );
+
+      let done = false;
+      while (!done) {
+        const start = performance.now(); // Start time
+        resp = await fetch(`${endpoint.url}/reportLatency`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId, token }),
+        });
+        data = await resp.json();
+
+        const end = performance.now(); // End time
+        const duration = end - start; // Calculate the duration in milliseconds
+
+        if (data.avgRttMs !== undefined) {
+          console.log(
+            `${endpoint.name}: All tests done. Average RTT = ${data.avgRttMs} ms`
+          );
+          done = true;
+          return { name: endpoint.name, avgRttMs: data.avgRttMs };
+        } else {
+          console.log(
+            `client-${endpoint.name}: RTT = ${duration.toFixed(2)} ms`
+          );
+          console.log(
+            `${endpoint.name}: Iteration complete (${data.iterationSoFar} / ${data.totalIterations})\n`
+          );
+        }
+      }
+    } catch (err) {
+      console.error(`${endpoint.name}: Error: ${err}`);
+    }
+  }
+
+  // Main function to run all tests concurrently.
+  async function runTests(userId: string): Promise<(EndpointResult | void)[]> {
+    if (!userId) {
+      console.error("Please provide a userId.");
+      return [];
+    }
+    const results = await Promise.all(
+      endpoints.map((ep) => runTestForEndpoint(ep, userId))
+    );
+    return results;
+  }
+  // @ts-ignore
+  // Express route that triggers the tests and returns the results.
+  app.get("/testSelf", async (req: Request, res: Response) => {
+    try {
+      // You can get the userId from the request body or use an environment variable.
+      // Here we're using process.env.SERVER_NAME as in your original code.
+      const userId = process.env.SERVER_NAME || "na";
+      const results = await runTests(userId);
+      return res.status(200).json({ results });
+    } catch (err) {
+      console.error("Error in /testSelf route:", err);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   /**
    * POST /reportLatency
    *
@@ -194,6 +330,7 @@ function createApp() {
    *    - if iteration === totalIterations => compute avg, store in DB, remove token from map, return { avgRttMs }
    */
   // @ts-ignore
+
   app.post("/reportLatency", async (req: Request, res: Response) => {
     try {
       const { userId, token } = req.body;
