@@ -101,10 +101,12 @@ function createApp() {
   <script>
     // List of remote endpoints to test
     const endpoints = [
-      { name: "US", url: "https://latency-test-us-dc1c0df1e579.herokuapp.com" },
-      { name: "EU", url: "https://latency-test-eu-6615850a4a65.herokuapp.com" },
+      { name: "US-HEROKU", url: "https://latency-test-us-dc1c0df1e579.herokuapp.com" },
+      { name: "EU-HEROKU", url: "https://latency-test-eu-6615850a4a65.herokuapp.com" },
       { name: "US-EAST", url: "https://latency-test-us-east.onrender.com" },
-      { name: "US_WEST", url:"https://latency-test-us-west.onrender.com"}
+      { name: "US_WEST", url:"https://latency-test-us-west.onrender.com"},
+      { name: "AS-SINGAPORE", url:"https://latency-test-singapore.onrender.com"},
+      { name: "EU-FRANKFURT", url:"https://latency-test-frankfurt.onrender.com"}
     ];
 
     const logArea = document.getElementById("logOutput");
