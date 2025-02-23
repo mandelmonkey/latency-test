@@ -84,6 +84,10 @@ const endpoints = [
     name: "EU-FRANKFURT",
     url: "https://latency-test-frankfurt.onrender.com",
   },
+  {
+    name: "US_EAST_AWS",
+    url: "http://3.91.247.29:3000",
+  },
 ];
 
 interface EndpointResult {
@@ -154,7 +158,7 @@ function createApp() {
       { name: "US_WEST", url:"https://latency-test-us-west.onrender.com"},
       { name: "AS-SINGAPORE", url:"https://latency-test-singapore.onrender.com"},
       { name: "EU-FRANKFURT", url:"https://latency-test-frankfurt.onrender.com"},
-      { name: "US-EAST-AWS", url:"http://3.91.247.29:3000/"},
+      { name: "US-EAST-AWS", url:"http://3.91.247.29:3000"},
     ];
 
     const logArea = document.getElementById("logOutput");
