@@ -33,6 +33,7 @@ interface UserLatencyDoc {
   region: string; // Which server region measured the latency
   lastPingMs: number; // e.g. 42
   updatedAt: Date;
+  createdAt: Date;
 }
 
 /**
@@ -65,10 +66,11 @@ interface ReportResponse {
 }
 
 const endpoints = [
-  { name: "AS-MUMBAI", url: "http://13.232.228.170:3000" },
-  { name: "AS-SINGAPORE", url: "http://54.169.56.245:3000" },
-  { name: "US-WEST-AWS", url: "http://54.215.60.128:3000" },
-  { name: "US-EAST-AWS", url: "http://3.91.247.29:3000" },
+  { name: "AS-MUMBAI", url: "http://65.0.52.247:3000" },
+  { name: "AS-SINGAPORE", url: "http://54.179.177.49:3000" },
+  { name: "US-WEST", url: "http://50.18.244.70:3000" },
+  { name: "US-EAST", url: "http://13.216.221.167:3000" },
+  { name: "EU_FRANKFURT", url: "http://18.198.145.50:3000" },
 ];
 
 interface EndpointResult {
@@ -113,6 +115,7 @@ function createApp() {
   const app = express();
   app.use(express.json());
   app.use(cors());
+  app.set("trust proxy", true);
 
   app.get("/", (req, res) => {
     res.send(`
@@ -132,12 +135,14 @@ function createApp() {
   
   <script>
     // List of remote endpoints to test
-    const endpoints = [
-      { name: "AS-MUMBAI", url:"http://13.232.228.170:3000"},
-      { name: "AS-SINGAPORE", url:"http://54.169.56.245:3000"},
-      { name: "US-WEST-AWS", url:"http://54.215.60.128:3000"},
-      { name: "US-EAST-AWS", url:"http://3.91.247.29:3000"},
-    ];
+   
+const endpoints = [
+  { name: "AS-MUMBAI", url: "http://65.0.52.247:3000" },
+  { name: "AS-SINGAPORE", url: "http://54.179.177.49:3000" },
+  { name: "US-WEST", url: "http://50.18.244.70:3000" },
+  { name: "US-EAST", url: "http://13.216.221.167:3000" },
+  { name: "EU_FRANKFURT", url: "http://18.198.145.50:3000" },
+];
 
     const logArea = document.getElementById("logOutput");
     const startBtn = document.getElementById("startTestBtn");
@@ -317,7 +322,8 @@ function createApp() {
   app.post("/reportLatency", async (req: Request, res: Response) => {
     try {
       const { userId, token } = req.body;
-      const ipAddress = req.header("x-forwarded-for");
+      const forwarded = req.header("x-forwarded-for");
+      const ipAddress = forwarded ? forwarded.split(",")[0] : req.ip;
 
       if (!userId) {
         return res.status(400).json({ error: "Missing userId" });
@@ -382,6 +388,7 @@ function createApp() {
               region: SERVER_REGION,
               lastPingMs: avgRttMs,
               updatedAt: new Date(),
+              createdAt: new Date(),
             },
           },
           { upsert: true }
