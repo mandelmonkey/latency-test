@@ -7,7 +7,7 @@
     "prebuild": "npm install",
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "tsc",
-    "start": "node dist/server.js",
+    "start": "pm2 start dist/server.js --name latency-check",
     "heroku-postbuild": "npm run build"
   },
   "type": "module",

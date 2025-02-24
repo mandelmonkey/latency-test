@@ -64,30 +64,11 @@ interface ReportResponse {
   avgRttMs?: number;
 }
 
-// List of remote endpoints to test
 const endpoints = [
-  {
-    name: "US-HEROKU",
-    url: "https://latency-test-us-dc1c0df1e579.herokuapp.com",
-  },
-  {
-    name: "EU-HEROKU",
-    url: "https://latency-test-eu-6615850a4a65.herokuapp.com",
-  },
-  { name: "US-EAST", url: "https://latency-test-us-east.onrender.com" },
-  { name: "US_WEST", url: "https://latency-test-us-west.onrender.com" },
-  {
-    name: "AS-SINGAPORE",
-    url: "https://latency-test-singapore.onrender.com",
-  },
-  {
-    name: "EU-FRANKFURT",
-    url: "https://latency-test-frankfurt.onrender.com",
-  },
-  {
-    name: "US_EAST_AWS",
-    url: "http://3.91.247.29:3000",
-  },
+  { name: "AS-MUMBAI", url: "http://13.232.228.170:3000" },
+  { name: "AS-SINGAPORE", url: "http://54.169.56.245:3000" },
+  { name: "US-WEST-AWS", url: "http://54.215.60.128:3000" },
+  { name: "US-EAST-AWS", url: "http://3.91.247.29:3000" },
 ];
 
 interface EndpointResult {
@@ -152,12 +133,9 @@ function createApp() {
   <script>
     // List of remote endpoints to test
     const endpoints = [
-      { name: "US-HEROKU", url: "https://latency-test-us-dc1c0df1e579.herokuapp.com" },
-      { name: "EU-HEROKU", url: "https://latency-test-eu-6615850a4a65.herokuapp.com" },
-      { name: "US-EAST", url: "https://latency-test-us-east.onrender.com" },
-      { name: "US_WEST", url:"https://latency-test-us-west.onrender.com"},
-      { name: "AS-SINGAPORE", url:"https://latency-test-singapore.onrender.com"},
-      { name: "EU-FRANKFURT", url:"https://latency-test-frankfurt.onrender.com"},
+      { name: "AS-MUMBAI", url:"http://13.232.228.170:3000"},
+      { name: "AS-SINGAPORE", url:"http://54.169.56.245:3000"},
+      { name: "US-WEST-AWS", url:"http://54.215.60.128:3000"},
       { name: "US-EAST-AWS", url:"http://3.91.247.29:3000"},
     ];
 
