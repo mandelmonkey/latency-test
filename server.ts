@@ -318,12 +318,16 @@ const endpoints = [
    *    - if iteration === totalIterations => compute avg, store in DB, remove token from map, return { avgRttMs }
    */
   // @ts-ignore
+  function normalizeIP(ip) {
+    return ip.startsWith("::ffff:") ? ip.substring(7) : ip;
+  }
 
   app.post("/reportLatency", async (req: Request, res: Response) => {
     try {
       const { userId, token } = req.body;
       const forwarded = req.header("x-forwarded-for");
-      const ipAddress = forwarded ? forwarded.split(",")[0] : req.ip;
+      const ipAddressV6 = forwarded ? forwarded.split(",")[0] : req.ip;
+      const ipAddress = normalizeIP(ipAddressV6);
 
       if (!userId) {
         return res.status(400).json({ error: "Missing userId" });
