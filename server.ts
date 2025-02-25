@@ -3,6 +3,8 @@ import cors from "cors";
 import { MongoClient, Db, Collection } from "mongodb";
 import crypto from "crypto";
 import { performance } from "perf_hooks";
+import https from "https";
+import fs from "fs";
 
 //////////////////////////////////////////////////////////
 //  CONFIGURATIONS & ENV
@@ -317,17 +319,20 @@ const endpoints = [
    *    - if iteration < totalIterations => reset startTracking=now, return { iterationSoFar }
    *    - if iteration === totalIterations => compute avg, store in DB, remove token from map, return { avgRttMs }
    */
-  // @ts-ignore
-  function normalizeIP(ip) {
+
+  function normalizeIP(ip: string) {
     return ip.startsWith("::ffff:") ? ip.substring(7) : ip;
   }
-
+  // @ts-ignore
   app.post("/reportLatency", async (req: Request, res: Response) => {
     try {
       const { userId, token } = req.body;
       const forwarded = req.header("x-forwarded-for");
       const ipAddressV6 = forwarded ? forwarded.split(",")[0] : req.ip;
-      const ipAddress = normalizeIP(ipAddressV6);
+      let ipAddress = "";
+      if (ipAddressV6) {
+        ipAddress = normalizeIP(ipAddressV6);
+      }
 
       if (!userId) {
         return res.status(400).json({ error: "Missing userId" });
@@ -523,8 +528,19 @@ async function startServer() {
     // Create and start the Express app
     const app = createApp();
     const PORT = process.env.PORT || 3000;
+    /*
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}. Region = ${SERVER_REGION}`);
+    });
+*/
+    // SSL options
+    const options = {
+      key: fs.readFileSync("key.pem"),
+      cert: fs.readFileSync("cert.pem"),
+    };
+
+    https.createServer(options, app).listen(3000, () => {
+      console.log("HTTPS server running on port 3000");
     });
   } catch (err) {
     console.error("Error starting server:", err);
