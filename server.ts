@@ -138,12 +138,16 @@ function createApp() {
   <script>
     // List of remote endpoints to test
    
+    const agent = new https.Agent({
+  rejectUnauthorized: false, // disable SSL certificate verification (insecure!)
+});
+
 const endpoints = [
   { name: "AS-MUMBAI", url: "http://65.0.52.247:3000" },
-  { name: "AS-SINGAPORE", url: "http://54.179.177.49:3000" },
+  { name: "AS-SINGAPORE", url: "https://54.179.177.49:3000" },
   { name: "US-WEST", url: "http://50.18.244.70:3000" },
   { name: "US-EAST", url: "http://13.216.221.167:3000" },
-  { name: "EU_FRANKFURT", url: "http://18.198.145.50:3000" },
+  { name: "EU_FRANKFURT", url: "https://18.198.145.50:3000" },
 ];
 
     const logArea = document.getElementById("logOutput");
@@ -158,7 +162,8 @@ const endpoints = [
         let resp = await fetch(endpoint.url + "/reportLatency", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userId })
+          body: JSON.stringify({ userId }),
+          agent
         });
         let data = await resp.json();
         
@@ -177,7 +182,8 @@ const endpoints = [
           resp = await fetch(endpoint.url + "/reportLatency", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ userId, token })
+            body: JSON.stringify({ userId, token }),
+            agent
           });
           data = await resp.json();
 
