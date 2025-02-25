@@ -3,8 +3,6 @@ import cors from "cors";
 import { MongoClient, Db, Collection } from "mongodb";
 import crypto from "crypto";
 import { performance } from "perf_hooks";
-import https from "https";
-import fs from "fs";
 
 //////////////////////////////////////////////////////////
 //  CONFIGURATIONS & ENV
@@ -534,19 +532,9 @@ async function startServer() {
     // Create and start the Express app
     const app = createApp();
     const PORT = process.env.PORT || 3000;
-    /*
+
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}. Region = ${SERVER_REGION}`);
-    });
-*/
-    // SSL options
-    const options = {
-      key: fs.readFileSync("key.pem"),
-      cert: fs.readFileSync("cert.pem"),
-    };
-
-    https.createServer(options, app).listen(3000, () => {
-      console.log("HTTPS server running on port 3000");
     });
   } catch (err) {
     console.error("Error starting server:", err);
