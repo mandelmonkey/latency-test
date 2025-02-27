@@ -68,7 +68,7 @@ interface ReportResponse {
 const endpoints = [
   { name: "AS-MUMBAI", url: "https://mumbai.mandelping.com" },
   { name: "AS-SINGAPORE", url: "https://singapore.mandelping.com" },
-  { name: "US-WEST", url: "https://us-west.mandelping.com0" },
+  { name: "US-WEST", url: "https://us-west.mandelping.com" },
   { name: "US-EAST", url: "https://us-east.mandelping.com" },
   { name: "EU_FRANKFURT", url: "https://frankfurt.mandelping.com" },
 ];
