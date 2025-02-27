@@ -66,6 +66,7 @@ interface ReportResponse {
   totalIterations?: number;
   iterationSoFar?: number;
   avgRttMs?: number;
+  lowestPingMs?: number;
 }
 
 const endpoints = [
