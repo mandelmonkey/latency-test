@@ -31,7 +31,8 @@ interface UserLatencyDoc {
   userId: string; // Unique user identifier
   ipAddress: string | undefined;
   region: string; // Which server region measured the latency
-  lastPingMs: number; // e.g. 42
+  lastPingMs: number; // The average RTT
+  lowestPingMs: number; // The absolute lowest RTT ever recorded
   updatedAt: Date;
   createdAt: Date;
 }
@@ -42,6 +43,7 @@ interface UserLatencyDoc {
  *  - iteration=0
  *  - totalIterations=5 (server-defined)
  *  - sumOfRTTs=0
+ *  - lowestRttMs=Infinity (for current iterations)
  *  - startTracking=Date (for current iteration)
  */
 interface TestState {
@@ -50,6 +52,7 @@ interface TestState {
   iteration: number;
   totalIterations: number;
   sumOfRTTs: number;
+  lowestRttMs: number;
   startTracking: Date;
 }
 
@@ -72,18 +75,6 @@ const endpoints = [
   { name: "US-EAST", url: "https://us-east.mandelping.com" },
   { name: "EU_FRANKFURT", url: "https://frankfurt.mandelping.com" },
 ];
-
-interface EndpointResult {
-  name: string;
-  avgRttMs?: number;
-}
-
-interface ReportResponse {
-  token?: string;
-  totalIterations?: number;
-  iterationSoFar?: number;
-  avgRttMs?: number;
-}
 
 //////////////////////////////////////////////////////////
 //  GLOBALS
@@ -135,20 +126,18 @@ function createApp() {
   
   <script>
     // List of remote endpoints to test
-   
- 
-const endpoints = [
-  { name: "AS-MUMBAI", url: "https://mumbai.mandelping.com" },
-  { name: "AS-SINGAPORE", url: "https://singapore.mandelping.com" },
-  { name: "US-WEST", url: "https://us-west.mandelping.com" },
-  { name: "US-EAST", url: "https://us-east.mandelping.com" },
-  { name: "EU_FRANKFURT", url: "https://frankfurt.mandelping.com" },
-];
-
+    const endpoints = [
+      { name: "AS-MUMBAI", url: "https://mumbai.mandelping.com" },
+      { name: "AS-SINGAPORE", url: "https://singapore.mandelping.com" },
+      { name: "US-WEST", url: "https://us-west.mandelping.com" },
+      { name: "US-EAST", url: "https://us-east.mandelping.com" },
+      { name: "EU_FRANKFURT", url: "https://frankfurt.mandelping.com" },
+    ];
+  
     const logArea = document.getElementById("logOutput");
     const startBtn = document.getElementById("startTestBtn");
     const userIdInput = document.getElementById("userId");
-
+  
     // Function to run the multi-iteration test for a given endpoint.
     async function runTestForEndpoint(endpoint, userId) {
       logArea.textContent += "Starting test for " + endpoint.name + " (" + endpoint.url + ")\\n";
@@ -172,25 +161,24 @@ const endpoints = [
         
         let done = false;
         while (!done) {
-        const start = performance.now(); // Start time
+          const start = performance.now(); // Start time
           resp = await fetch(endpoint.url + "/reportLatency", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ userId, token }),
           });
           data = await resp.json();
-
+  
           const end = performance.now(); // End time
-
+  
           const duration = end - start; // Calculate the duration in milliseconds 
-
+  
           if (data.avgRttMs !== undefined) {
-           
-            logArea.textContent += endpoint.name + ": All tests done. Average RTT = " + data.avgRttMs + " ms\\n";
+            logArea.textContent += endpoint.name + ": All tests done. Average RTT = " + data.avgRttMs + " ms, Lowest RTT = " + data.lowestPingMs + " ms\\n";
             done = true;
             return { name: endpoint.name, avgRttMs: data.avgRttMs };
           } else {
-           logArea.textContent += "client-"+ endpoint.name + ": RTT = " + duration.toFixed(2) + " ms\\n";
+            logArea.textContent += "client-"+ endpoint.name + ": RTT = " + duration.toFixed(2) + " ms\\n";
             logArea.textContent += endpoint.name + ": Iteration complete (" + data.iterationSoFar + " / " + data.totalIterations + ")\\n\\n";
           }
         }
@@ -198,7 +186,7 @@ const endpoints = [
         logArea.textContent += endpoint.name + ": Error: " + err + "\\n";
       }
     }
-
+  
     startBtn.addEventListener("click", async () => {
       logArea.textContent = "";
       const userId = userIdInput.value.trim();
@@ -261,7 +249,7 @@ const endpoints = [
 
         if (data.avgRttMs !== undefined) {
           console.log(
-            `${endpoint.name}: All tests done. Average RTT = ${data.avgRttMs} ms`
+            `${endpoint.name}: All tests done. Average RTT = ${data.avgRttMs} ms, Lowest RTT = ${data.lowestPingMs} ms`
           );
           done = true;
           return { name: endpoint.name, avgRttMs: data.avgRttMs };
@@ -309,14 +297,15 @@ const endpoints = [
    * POST /reportLatency
    *
    * 1) First call (no token) => server generates a token, sets iteration=0,
-   *    totalIterations = DEFAULT_TOTAL_ITERATIONS, sumOfRTTs=0, and returns { token, totalIterations }
+   *    totalIterations = DEFAULT_TOTAL_ITERATIONS, sumOfRTTs=0, lowestRttMs=Infinity, and returns { token, totalIterations }
    *
    * 2) Next calls => { userId, token }
    *    - Server measures RTT = now - startTracking
    *    - iteration++
    *    - sumOfRTTs += RTT
+   *    - lowestRttMs = Math.min(current RTT, lowestRttMs)
    *    - if iteration < totalIterations => reset startTracking=now, return { iterationSoFar }
-   *    - if iteration === totalIterations => compute avg, store in DB, remove token from map, return { avgRttMs }
+   *    - if iteration === totalIterations => compute avg, update DB with avg and new lowest value (using $min), remove token from map, return { avgRttMs, lowestPingMs }
    */
 
   function normalizeIP(ip: string) {
@@ -343,13 +332,14 @@ const endpoints = [
         const randomToken = crypto.randomBytes(8).toString("hex");
         const startTracking = new Date();
 
-        // Create the initial state
+        // Create the initial state, initializing lowestRttMs to a large number.
         const newState: TestState = {
           userId,
           ipAddress,
           iteration: 0,
           totalIterations: DEFAULT_TOTAL_ITERATIONS,
           sumOfRTTs: 0,
+          lowestRttMs: Number.MAX_SAFE_INTEGER,
           startTracking,
         };
         tokenMap.set(randomToken, newState);
@@ -376,6 +366,8 @@ const endpoints = [
       const rttMs = now.getTime() - state.startTracking.getTime();
 
       state.sumOfRTTs += rttMs;
+      // Update the lowest RTT seen so far in this test run
+      state.lowestRttMs = Math.min(state.lowestRttMs, rttMs);
       state.iteration += 1;
 
       console.log(
@@ -383,10 +375,10 @@ const endpoints = [
       );
 
       if (state.iteration >= state.totalIterations) {
-        // We are done. Compute average, store in DB, remove token.
+        // We are done. Compute average.
         const avgRttMs = Math.round(state.sumOfRTTs / state.totalIterations);
 
-        // Store final in Mongo
+        // Update MongoDB: use $min so the stored lowestPingMs is updated only if state.lowestRttMs is lower.
         await latencyColl.updateOne(
           { userId: state.userId, region: SERVER_REGION },
           {
@@ -396,8 +388,9 @@ const endpoints = [
               region: SERVER_REGION,
               lastPingMs: avgRttMs,
               updatedAt: new Date(),
-              createdAt: new Date(),
             },
+            $min: { lowestPingMs: state.lowestRttMs },
+            $setOnInsert: { createdAt: new Date() },
           },
           { upsert: true }
         );
@@ -405,12 +398,13 @@ const endpoints = [
         tokenMap.delete(token);
 
         console.log(
-          `Completed all ${state.totalIterations} tests. avgRttMs=${avgRttMs} for user=${state.userId}.`
+          `Completed all ${state.totalIterations} tests. avgRttMs=${avgRttMs}, lowestRttMs=${state.lowestRttMs} for user=${state.userId}.`
         );
 
         return res.json({
           message: "All tests completed",
           avgRttMs,
+          lowestPingMs: state.lowestRttMs,
           totalIterations: state.totalIterations,
         });
       } else {
@@ -461,7 +455,7 @@ const endpoints = [
   /**
    * GET /closestServer/:userId
    *  - Looks at all region-latency docs for this user
-   *  - Finds the server with the lowest latency
+   *  - Finds the server with the lowest average latency
    *  - If the best latency is still too high, we say "user not close to any server"
    */
   // @ts-ignore
@@ -477,10 +471,10 @@ const endpoints = [
         });
       }
 
-      // Sort by ascending lastPingMs
+      // Sort by ascending average latency (lastPingMs)
       records.sort((a, b) => a.lastPingMs - b.lastPingMs);
 
-      // The first record in sorted order has the lowest latency
+      // The first record in sorted order has the lowest average RTT.
       const best = records[0];
       const bestMs = best.lastPingMs;
 
@@ -488,7 +482,7 @@ const endpoints = [
         return res.json({
           userId,
           closest: null,
-          msg: `User's best latency is ${bestMs} ms, above threshold. Not close to any server.`,
+          msg: `User's best average latency is ${bestMs} ms, above threshold. Not close to any server.`,
         });
       }
 
@@ -498,9 +492,10 @@ const endpoints = [
         closest: {
           region: best.region,
           lastPingMs: best.lastPingMs,
+          lowestPingMs: best.lowestPingMs,
           updatedAt: best.updatedAt,
         },
-        msg: `Closest server region is ${best.region} with ${best.lastPingMs} ms RTT`,
+        msg: `Closest server region is ${best.region} with an average RTT of ${best.lastPingMs} ms and lowest RTT of ${best.lowestPingMs} ms`,
       });
     } catch (err) {
       console.error("MongoDB find error:", err);
