@@ -10,6 +10,7 @@
     "start": "pm2 start dist/server.js --name latency-check",
     "heroku-postbuild": "npm run build"
   },
+  "engines":{"node":"18.16.0"},
   "type": "module",
   "keywords": [],
   "author": "",
