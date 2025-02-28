@@ -3,6 +3,15 @@ import cors from "cors";
 import { MongoClient, Db, Collection } from "mongodb";
 import crypto from "crypto";
 import { performance } from "perf_hooks";
+import rateLimit from "express-rate-limit";
+
+const reportLatencyLimiter = rateLimit({
+  windowMs: 24 * 60 * 60 * 1000, // 1 minute window
+  max: 1000, // Limit each IP to 10 requests per window
+  handler: (req, res) => {
+    res.status(201).json({ name: "", avgRttMs: 0 });
+  },
+});
 
 //////////////////////////////////////////////////////////
 //  CONFIGURATIONS & ENV
@@ -313,115 +322,119 @@ function createApp() {
     return ip.startsWith("::ffff:") ? ip.substring(7) : ip;
   }
   // @ts-ignore
-  app.post("/reportLatency", async (req: Request, res: Response) => {
-    try {
-      const { userId, token } = req.body;
-      const forwarded = req.header("x-forwarded-for");
-      const ipAddressV6 = forwarded ? forwarded.split(",")[0] : req.ip;
-      let ipAddress = "";
-      if (ipAddressV6) {
-        ipAddress = normalizeIP(ipAddressV6);
-      }
+  app.post(
+    "/reportLatency",
+    reportLatencyLimiter,
+    async (req: Request, res: Response) => {
+      try {
+        const { userId, token } = req.body;
+        const forwarded = req.header("x-forwarded-for");
+        const ipAddressV6 = forwarded ? forwarded.split(",")[0] : req.ip;
+        let ipAddress = "";
+        if (ipAddressV6) {
+          ipAddress = normalizeIP(ipAddressV6);
+        }
 
-      if (!userId) {
-        return res.status(400).json({ error: "Missing userId" });
-      }
+        if (!userId) {
+          return res.status(400).json({ error: "Missing userId" });
+        }
 
-      // 1) If no token, it's the first call in the sequence
-      if (!token) {
-        // Generate random token
-        const randomToken = crypto.randomBytes(8).toString("hex");
-        const startTracking = new Date();
+        // 1) If no token, it's the first call in the sequence
+        if (!token) {
+          // Generate random token
+          const randomToken = crypto.randomBytes(8).toString("hex");
+          const startTracking = new Date();
 
-        // Create the initial state, initializing lowestRttMs to a large number.
-        const newState: TestState = {
-          userId,
-          ipAddress,
-          iteration: 0,
-          totalIterations: DEFAULT_TOTAL_ITERATIONS,
-          sumOfRTTs: 0,
-          lowestRttMs: Number.MAX_SAFE_INTEGER,
-          startTracking,
-        };
-        tokenMap.set(randomToken, newState);
+          // Create the initial state, initializing lowestRttMs to a large number.
+          const newState: TestState = {
+            userId,
+            ipAddress,
+            iteration: 0,
+            totalIterations: DEFAULT_TOTAL_ITERATIONS,
+            sumOfRTTs: 0,
+            lowestRttMs: Number.MAX_SAFE_INTEGER,
+            startTracking,
+          };
+          tokenMap.set(randomToken, newState);
+
+          console.log(
+            `First call: userId=${userId}, totalTests=${DEFAULT_TOTAL_ITERATIONS}, token=${randomToken}`
+          );
+
+          return res.json({
+            token: randomToken,
+            totalIterations: DEFAULT_TOTAL_ITERATIONS,
+            message: `Begin RTT test. Repeat calls until all ${DEFAULT_TOTAL_ITERATIONS} iterations complete.`,
+          });
+        }
+
+        // 2) If token is present, we're continuing the handshake
+        const state = tokenMap.get(token);
+        if (!state) {
+          return res.status(404).json({ error: "Token not found or expired." });
+        }
+
+        // Calculate this iteration's RTT
+        const now = new Date();
+        const rttMs = now.getTime() - state.startTracking.getTime();
+
+        state.sumOfRTTs += rttMs;
+        // Update the lowest RTT seen so far in this test run
+        state.lowestRttMs = Math.min(state.lowestRttMs, rttMs);
+        state.iteration += 1;
 
         console.log(
-          `First call: userId=${userId}, totalTests=${DEFAULT_TOTAL_ITERATIONS}, token=${randomToken}`
+          `Iteration #${state.iteration} of ${state.totalIterations} for user=${state.userId}. RTT=${rttMs}ms`
         );
 
-        return res.json({
-          token: randomToken,
-          totalIterations: DEFAULT_TOTAL_ITERATIONS,
-          message: `Begin RTT test. Repeat calls until all ${DEFAULT_TOTAL_ITERATIONS} iterations complete.`,
-        });
-      }
+        if (state.iteration >= state.totalIterations) {
+          // We are done. Compute average.
+          const avgRttMs = Math.round(state.sumOfRTTs / state.totalIterations);
 
-      // 2) If token is present, we're continuing the handshake
-      const state = tokenMap.get(token);
-      if (!state) {
-        return res.status(404).json({ error: "Token not found or expired." });
-      }
-
-      // Calculate this iteration's RTT
-      const now = new Date();
-      const rttMs = now.getTime() - state.startTracking.getTime();
-
-      state.sumOfRTTs += rttMs;
-      // Update the lowest RTT seen so far in this test run
-      state.lowestRttMs = Math.min(state.lowestRttMs, rttMs);
-      state.iteration += 1;
-
-      console.log(
-        `Iteration #${state.iteration} of ${state.totalIterations} for user=${state.userId}. RTT=${rttMs}ms`
-      );
-
-      if (state.iteration >= state.totalIterations) {
-        // We are done. Compute average.
-        const avgRttMs = Math.round(state.sumOfRTTs / state.totalIterations);
-
-        // Update MongoDB: use $min so the stored lowestPingMs is updated only if state.lowestRttMs is lower.
-        await latencyColl.updateOne(
-          { userId: state.userId, region: SERVER_REGION },
-          {
-            $set: {
-              userId: state.userId,
-              ipAddress: state.ipAddress,
-              region: SERVER_REGION,
-              lastPingMs: avgRttMs,
-              updatedAt: new Date(),
+          // Update MongoDB: use $min so the stored lowestPingMs is updated only if state.lowestRttMs is lower.
+          await latencyColl.updateOne(
+            { userId: state.userId, region: SERVER_REGION },
+            {
+              $set: {
+                userId: state.userId,
+                ipAddress: state.ipAddress,
+                region: SERVER_REGION,
+                lastPingMs: avgRttMs,
+                updatedAt: new Date(),
+              },
+              $min: { lowestPingMs: state.lowestRttMs },
+              $setOnInsert: { createdAt: new Date() },
             },
-            $min: { lowestPingMs: state.lowestRttMs },
-            $setOnInsert: { createdAt: new Date() },
-          },
-          { upsert: true }
-        );
+            { upsert: true }
+          );
 
-        tokenMap.delete(token);
+          tokenMap.delete(token);
 
-        console.log(
-          `Completed all ${state.totalIterations} tests. avgRttMs=${avgRttMs}, lowestRttMs=${state.lowestRttMs} for user=${state.userId}.`
-        );
+          console.log(
+            `Completed all ${state.totalIterations} tests. avgRttMs=${avgRttMs}, lowestRttMs=${state.lowestRttMs} for user=${state.userId}.`
+          );
 
-        return res.json({
-          message: "All tests completed",
-          avgRttMs,
-          lowestPingMs: state.lowestRttMs,
-          totalIterations: state.totalIterations,
-        });
-      } else {
-        // Not done yet: prepare for next iteration
-        state.startTracking = now;
-        return res.json({
-          message: "Test iteration complete. Continue calling until done.",
-          iterationSoFar: state.iteration,
-          totalIterations: state.totalIterations,
-        });
+          return res.json({
+            message: "All tests completed",
+            avgRttMs,
+            lowestPingMs: state.lowestRttMs,
+            totalIterations: state.totalIterations,
+          });
+        } else {
+          // Not done yet: prepare for next iteration
+          state.startTracking = now;
+          return res.json({
+            message: "Test iteration complete. Continue calling until done.",
+            iterationSoFar: state.iteration,
+            totalIterations: state.totalIterations,
+          });
+        }
+      } catch (err) {
+        console.error("Error in /reportLatency route:", err);
+        return res.status(500).json({ error: "Internal server error" });
       }
-    } catch (err) {
-      console.error("Error in /reportLatency route:", err);
-      return res.status(500).json({ error: "Internal server error" });
     }
-  });
+  );
 
   /**
    * GET /getLatency/:userId
