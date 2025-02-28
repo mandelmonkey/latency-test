@@ -8,8 +8,8 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const reportLatencyLimiter = rateLimit({
-  windowMs: 24 * 60 * 60 * 1000, // 1 minute window
-  max: 5, // Limit each IP to 10 requests per window
+  windowMs: 60 * 60 * 1000, // 1 minute window
+  max: 100, // Limit each IP to 10 requests per window
   handler: (
     req: Request,
     res: Response,
@@ -123,8 +123,6 @@ function createApp() {
   const app = express();
   app.use(express.json());
   app.use(cors());
-  app.set("trust proxy", true);
-
   app.get("/", (req, res) => {
     res.send(`
 <!DOCTYPE html>
