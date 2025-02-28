@@ -224,7 +224,7 @@ function createApp() {
     endpoint: { name: string; url: string },
     userId: string
   ): Promise<EndpointResult | void> {
-    console.log(`Starting test for ${endpoint.name} (${endpoint.url})`);
+    // console.log(`Starting test for ${endpoint.name} (${endpoint.url})`);
     try {
       // First call: no token provided
       let resp = await fetch(`${endpoint.url}/reportLatency`, {
@@ -245,9 +245,9 @@ function createApp() {
 
       const token = data.token;
       const totalIterations = data.totalIterations;
-      console.log(
+      /*  console.log(
         `${endpoint.name}: Received token: ${token}. Total iterations: ${totalIterations}`
-      );
+      );*/
 
       let done = false;
       while (!done) {
@@ -263,18 +263,18 @@ function createApp() {
         const duration = end - start; // Calculate the duration in milliseconds
 
         if (data.avgRttMs !== undefined) {
-          console.log(
+          /*   console.log(
             `${endpoint.name}: All tests done. Average RTT = ${data.avgRttMs} ms, Lowest RTT = ${data.lowestPingMs} ms`
-          );
+          );*/
           done = true;
           return { name: endpoint.name, avgRttMs: data.avgRttMs };
         } else {
-          console.log(
+          /*  console.log(
             `client-${endpoint.name}: RTT = ${duration.toFixed(2)} ms`
           );
           console.log(
             `${endpoint.name}: Iteration complete (${data.iterationSoFar} / ${data.totalIterations})\n`
-          );
+          );*/
         }
       }
     } catch (err) {
@@ -363,9 +363,9 @@ function createApp() {
           };
           tokenMap.set(randomToken, newState);
 
-          console.log(
+          /* console.log(
             `First call: userId=${userId}, totalTests=${DEFAULT_TOTAL_ITERATIONS}, token=${randomToken}`
-          );
+          );*/
 
           res.json({
             token: randomToken,
@@ -390,10 +390,10 @@ function createApp() {
         // Update the lowest RTT seen so far in this test run
         state.lowestRttMs = Math.min(state.lowestRttMs, rttMs);
         state.iteration += 1;
-
+        /*
         console.log(
           `Iteration #${state.iteration} of ${state.totalIterations} for user=${state.userId}. RTT=${rttMs}ms`
-        );
+        );*/
 
         if (state.iteration >= state.totalIterations) {
           // We are done. Compute average.
@@ -417,10 +417,10 @@ function createApp() {
           );
 
           tokenMap.delete(token);
-
+          /*
           console.log(
             `Completed all ${state.totalIterations} tests. avgRttMs=${avgRttMs}, lowestRttMs=${state.lowestRttMs} for user=${state.userId}.`
-          );
+          );*/
 
           res.json({
             message: "All tests completed",
