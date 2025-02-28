@@ -1,14 +1,21 @@
-import express, { Request, Response } from "express";
+import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import { MongoClient, Db, Collection } from "mongodb";
 import crypto from "crypto";
 import { performance } from "perf_hooks";
 import rateLimit from "express-rate-limit";
+import dotenv from "dotenv";
+dotenv.config();
 
 const reportLatencyLimiter = rateLimit({
   windowMs: 24 * 60 * 60 * 1000, // 1 minute window
-  max: 1000, // Limit each IP to 10 requests per window
-  handler: (req, res) => {
+  max: 5, // Limit each IP to 10 requests per window
+  handler: (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+    options: { statusCode: number; message: string }
+  ) => {
     res.status(201).json({ name: "", avgRttMs: 0 });
   },
 });
@@ -321,11 +328,11 @@ function createApp() {
   function normalizeIP(ip: string) {
     return ip.startsWith("::ffff:") ? ip.substring(7) : ip;
   }
-  // @ts-ignore
+
   app.post(
     "/reportLatency",
     reportLatencyLimiter,
-    async (req: Request, res: Response) => {
+    async (req: Request, res: Response): Promise<void> => {
       try {
         const { userId, token } = req.body;
         const forwarded = req.header("x-forwarded-for");
@@ -336,7 +343,8 @@ function createApp() {
         }
 
         if (!userId) {
-          return res.status(400).json({ error: "Missing userId" });
+          res.status(400).json({ error: "Missing userId" });
+          return;
         }
 
         // 1) If no token, it's the first call in the sequence
@@ -361,17 +369,19 @@ function createApp() {
             `First call: userId=${userId}, totalTests=${DEFAULT_TOTAL_ITERATIONS}, token=${randomToken}`
           );
 
-          return res.json({
+          res.json({
             token: randomToken,
             totalIterations: DEFAULT_TOTAL_ITERATIONS,
             message: `Begin RTT test. Repeat calls until all ${DEFAULT_TOTAL_ITERATIONS} iterations complete.`,
           });
+          return;
         }
 
         // 2) If token is present, we're continuing the handshake
         const state = tokenMap.get(token);
         if (!state) {
-          return res.status(404).json({ error: "Token not found or expired." });
+          res.status(404).json({ error: "Token not found or expired." });
+          return;
         }
 
         // Calculate this iteration's RTT
@@ -414,24 +424,27 @@ function createApp() {
             `Completed all ${state.totalIterations} tests. avgRttMs=${avgRttMs}, lowestRttMs=${state.lowestRttMs} for user=${state.userId}.`
           );
 
-          return res.json({
+          res.json({
             message: "All tests completed",
             avgRttMs,
             lowestPingMs: state.lowestRttMs,
             totalIterations: state.totalIterations,
           });
+          return;
         } else {
           // Not done yet: prepare for next iteration
           state.startTracking = now;
-          return res.json({
+          res.json({
             message: "Test iteration complete. Continue calling until done.",
             iterationSoFar: state.iteration,
             totalIterations: state.totalIterations,
           });
+          return;
         }
       } catch (err) {
         console.error("Error in /reportLatency route:", err);
-        return res.status(500).json({ error: "Internal server error" });
+        res.status(500).json({ error: "Internal server error" });
+        return;
       }
     }
   );
