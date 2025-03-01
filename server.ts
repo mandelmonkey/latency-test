@@ -123,6 +123,7 @@ function createApp() {
   const app = express();
   app.use(express.json());
   app.use(cors());
+  app.set("trust proxy", true);
   app.get("/", (req, res) => {
     res.send(`
 <!DOCTYPE html>

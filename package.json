@@ -8,7 +8,8 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "tsc",
     "start": "pm2 start dist/server.js --name latency-check",
-    "heroku-postbuild": "npm run build"
+    "heroku-postbuild": "npm run build",
+    "restart": "pm2 stop all && git pull origin master && npm run build && npm start"
   },
   "type": "module",
   "keywords": [],
