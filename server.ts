@@ -498,11 +498,11 @@ function createApp() {
       }
 
       // Sort by ascending average latency (lastPingMs)
-      records.sort((a, b) => a.lastPingMs - b.lastPingMs);
+      records.sort((a, b) => a.lowestPingMs - b.lowestPingMs);
 
       // The first record in sorted order has the lowest average RTT.
       const best = records[0];
-      const bestMs = best.lastPingMs;
+      const bestMs = best.lowestPingMs;
 
       if (bestMs > LATENCY_CLOSE_THRESHOLD_MS) {
         return res.json({
@@ -521,7 +521,7 @@ function createApp() {
           lowestPingMs: best.lowestPingMs,
           updatedAt: best.updatedAt,
         },
-        msg: `Closest server region is ${best.region} with an average RTT of ${best.lastPingMs} ms and lowest RTT of ${best.lowestPingMs} ms`,
+        msg: `Closest server region is ${best.region} lowest RTT of ${best.lowestPingMs} ms`,
       });
     } catch (err) {
       console.error("MongoDB find error:", err);
