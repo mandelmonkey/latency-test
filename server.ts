@@ -485,7 +485,7 @@ function createApp() {
    *  - If the best latency is still too high, we say "user not close to any server"
    */
   // @ts-ignore
-  app.get("/closestServer/:userId", async (req: Request, res: Response) => {
+  app.get("/closestServer/:userId", async (req, res) => {
     const { userId } = req.params;
     try {
       const records = await latencyColl.find({ userId }).toArray();
@@ -496,22 +496,10 @@ function createApp() {
           msg: "No data from any server for this user.",
         });
       }
-
       // Sort by ascending average latency (lastPingMs)
       records.sort((a, b) => a.lowestPingMs - b.lowestPingMs);
-
       // The first record in sorted order has the lowest average RTT.
       const best = records[0];
-      const bestMs = best.lowestPingMs;
-
-      if (bestMs > LATENCY_CLOSE_THRESHOLD_MS) {
-        return res.json({
-          userId,
-          closest: null,
-          msg: `User's best average latency is ${bestMs} ms, above threshold. Not close to any server.`,
-        });
-      }
-
       // If it's below threshold, we consider that region "closest"
       return res.json({
         userId,
@@ -528,7 +516,6 @@ function createApp() {
       return res.status(500).json({ error: "Internal server error" });
     }
   });
-
   return app;
 }
 
